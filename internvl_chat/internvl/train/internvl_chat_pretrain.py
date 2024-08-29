@@ -306,8 +306,8 @@ class LazySupervisedDataset(Dataset):
         self.group_by_length = group_by_length
         self.dynamic_image_size = dynamic_image_size
         self.use_thumbnail = use_thumbnail
-        self.min_dynamic_patch = min_dynamic_patch
-        self.max_dynamic_patch = max_dynamic_patch
+        self.min_dynamic_patch = min_dynamic_patch # 1
+        self.max_dynamic_patch = max_dynamic_patch # 12
         self.normalize_type = normalize_type
 
         # If the precomputed length does not exist, roughly estimate the length of
@@ -328,7 +328,9 @@ class LazySupervisedDataset(Dataset):
                             conversations, return_tensors='pt', padding=False, truncation=False,
                         ).input_ids.size(1)
                         self.conv2length[str_length] = token_length + num_image_token * (
-                                    max_dynamic_patch + use_thumbnail)
+                                    max_dynamic_patch + use_thumbnail) 
+                      # num_image_token = 256 代表的是每个448*448图片对应的 token 数量；
+                      # max_dynamic_patch 、 use_thumbnail 表示的是输入的完整图片被切成448*448 的数量;
                     else:
                         token_length = self.conv2length[str_length]
                 self.length.append(token_length)
@@ -704,6 +706,7 @@ def main():
         tokenizer_path, add_eos_token=False, trust_remote_code=True, use_fast=False)
     tokenizer.tokenizer_path = tokenizer_path
     tokenizer.model_max_length = data_args.max_seq_length
+    # 多模态 sp token 
     token_list = [IMG_START_TOKEN, IMG_END_TOKEN, IMG_CONTEXT_TOKEN,
                   QUAD_START_TOKEN, QUAD_END_TOKEN, REF_START_TOKEN,
                   REF_END_TOKEN, BOX_START_TOKEN, BOX_END_TOKEN]
@@ -770,7 +773,7 @@ def main():
         logger.info(message)
     logger.info('Finished')
 
-    patch_size = model.config.vision_config.patch_size
+    patch_size = model.config.vision_config.patch_size # config 里面是14
     logger.info(f'model.config.force_image_size: {model.config.force_image_size}')
     logger.info(f'data_args.force_image_size: {data_args.force_image_size}')
     logger.info(f'model.config.vision_config.image_size: {model.config.vision_config.image_size}')
@@ -783,6 +786,9 @@ def main():
                                                  patch_size=patch_size)
         model.config.vision_config.image_size = data_args.force_image_size
     model.config.force_image_size = data_args.force_image_size
+    # data_args.down_sample_ratio = 0.5 
+    # data_args.force_image_size = 448 
+    # 32*32 * (0.5 * 0.5) = 32 * 8 = 256，每张 448*448 图片对应着 256 个 token
     model.num_image_token = int((data_args.force_image_size // patch_size) ** 2 * (data_args.down_sample_ratio ** 2))
 
     if num_new_tokens > 0:
