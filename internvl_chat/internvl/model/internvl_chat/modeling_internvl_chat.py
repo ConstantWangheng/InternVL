@@ -79,6 +79,8 @@ class InternVLChatModel(PreTrainedModel):
         vit_hidden_size = config.vision_config.hidden_size
         llm_hidden_size = config.llm_config.hidden_size
 
+        # projecter
+        # LN; linear layer; gelu; linear layer;
         self.mlp1 = nn.Sequential(
             nn.LayerNorm(vit_hidden_size * int(1 / self.downsample_ratio) ** 2),
             nn.Linear(vit_hidden_size * int(1 / self.downsample_ratio) ** 2, llm_hidden_size),
@@ -163,6 +165,7 @@ class InternVLChatModel(PreTrainedModel):
 
         input_ids = input_ids.reshape(B * N)
         selected = (input_ids == self.img_context_token_id)
+        # 对于context中图片对应的embedding，使用vit提取的embedding来替代
         try:
             input_embeds[selected] = input_embeds[selected] * 0.0 + vit_embeds.reshape(-1, C)
             ignore_flag = False
@@ -214,7 +217,8 @@ class InternVLChatModel(PreTrainedModel):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
-
+    # 这样的像素重排操作在超分辨率和卷积神经网络的特征重整中经常使用。
+    # 通过这种操作，可以灵活地改变图像的空间分辨率而不>影响图像的内容信息。
     def pixel_shuffle(self, x, scale_factor=0.5):
         n, w, h, c = x.size()
         # N, W, H, C --> N, W, H * scale, C // scale
