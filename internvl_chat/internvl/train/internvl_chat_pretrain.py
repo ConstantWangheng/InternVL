@@ -390,10 +390,12 @@ class LazySupervisedDataset(Dataset):
         else:  # Otherwise, use the original image as a single patch
             images = [image]
 
+        # 将图片转换为 448*448 的sub image
         # Apply the transformation to each image and stack the results into a tensor
         pixel_values = [transform(image) for image in images]
         pixel_values = torch.stack(pixel_values)
 
+        # num_patches 是sub image数量
         # Ensure that there is only one patch if dynamic image size is not enabled
         num_patches = pixel_values.size(0)
         if not self.dynamic_image_size:
@@ -403,6 +405,7 @@ class LazySupervisedDataset(Dataset):
         preprocess_function = self.get_preprocess_function()
 
         # Preprocess the conversations and generate the return dictionary
+        # 处理文本，转为id; 每个图片的token在文本中使用IMG_CONTEXT_TOKEN占位；所有的图片patch对应的占位符一样；
         ret = preprocess_function(self.template_name, [deepcopy(data_item['conversations'])],
                                   self.tokenizer, [self.num_image_token * num_patches],
                                   group_by_length=self.group_by_length, ds_name=self.ds_name)
@@ -423,17 +426,21 @@ class LazySupervisedDataset(Dataset):
 
         images, num_tiles = [], []
         num_image = len(data_item['image'])
+        # 依次导入多张图片
         for image_path in data_item['image']:
             # Merge the image path
             image_path = self.get_image_path(image_path)
             # Load the image using tcs_loader if available, otherwise use PIL
             image = self.load_image(image_path)
+            
             if self.dynamic_image_size:  # If dynamic image size is enabled, preprocess the image dynamically
+                # 将单张图片切割成多张448*448的子图片；
                 image = dynamic_preprocess(image, min_num=self.min_dynamic_patch,
                                            max_num=self.max_dynamic_patch // num_image,
                                            image_size=self.image_size, use_thumbnail=self.use_thumbnail)
                 images += image
                 num_tiles.append(len(image))
+              
             else:  # Otherwise, use the original image as a single patch
                 images.append(image)
                 num_tiles.append(1)
@@ -444,7 +451,16 @@ class LazySupervisedDataset(Dataset):
         # Select the appropriate preprocessing function based on the template name
         preprocess_function = self.get_preprocess_function()
 
+
+        # {IMG_START_TOKEN}{IMG_CONTEXT_TOKEN * num_image_token_list[i]}{IMG_END_TOKEN} {IMG_START_TOKEN}{IMG_CONTEXT_TOKEN * num_image_token_list[i+1]}{IMG_END_TOKEN}
+        # 每张图前后都会有sp token
         # Preprocess the conversations and generate the return dictionary
+        # num_tiles = [12, 1, 6]
+        # 表示的是，总共有3张图片，第1张图片被切割成12 sub image；
+        # num_image_tokens = [12 * self.num_image_token, 1 * self.num_image_token, 6 * self.num_image_token]
+        # 每个位置对应的是，完整的一张image对应的所有token数量;
+        # 从代码里面看，所有sub image是放到一起处理的，前后用IMG_START_TOKEN、IMG_END_TOKEN
+        # IMG_START_TOKEN image_1_sub_image_1 image_1_sub_image_2 ... image_1_sub_image_12 IMG_END_TOKEN IMG_START_TOKEN image_2_sub_image_1 IMG_END_TOKEN ...
         num_image_tokens = [self.num_image_token * num_tile for num_tile in num_tiles]
         ret = preprocess_function(self.template_name, [deepcopy(data_item['conversations'])],
                                   self.tokenizer, num_image_tokens, group_by_length=self.group_by_length,
@@ -762,6 +778,8 @@ def main():
         internvl_chat_config.force_image_size = data_args.force_image_size
         logger.info('Building InternVLChatModel...')
         model = InternVLChatModel(internvl_chat_config, vision_model, llm)
+    
+    # 图片token的占位符; 每个token就是patch的embedding表示
     model.img_context_token_id = img_context_token_id
 
     assert model.config.downsample_ratio == data_args.down_sample_ratio
