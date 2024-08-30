@@ -606,6 +606,9 @@ def preprocess_internlm(
     conv = get_conv_template(template_name)
     roles = {'human': conv.roles[0], 'gpt': conv.roles[1]}
 
+    # num_image_token_list [self.num_image_token * num_patches]
+    # num_patches 指image切成 patch 的数量
+    # self.num_image_token 448*448 对应的token数量
     # Apply prompt templates
     conversations = []
     for i, source in enumerate(sources):
@@ -639,7 +642,7 @@ def preprocess_internlm(
         truncation=True,
     ).input_ids
     targets = input_ids.clone()
-
+    # wh 图像的id在预处理的时候，没有mask掉，未做特殊处理
     for conversation, target in zip(conversations, targets):
         total_len = int(target.ne(tokenizer.pad_token_id).sum())  # 浦语里面 pad_token_id = eos_token_id
         cur_len = 1
